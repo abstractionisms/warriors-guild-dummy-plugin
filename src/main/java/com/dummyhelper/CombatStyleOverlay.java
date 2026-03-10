@@ -56,16 +56,22 @@ public class CombatStyleOverlay extends Overlay
 			return null;
 		}
 
+		// Expand bounds by 2px on each side to cover the full visual tile
+		Rectangle expanded = new Rectangle(
+			bounds.x - 2, bounds.y - 2,
+			bounds.width + 4, bounds.height + 4
+		);
+
 		Color color = config.correctColor();
 
-		// Green fill
+		// Solid fill over the entire tile
 		graphics.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 60));
-		graphics.fill(bounds);
+		graphics.fill(expanded);
 
-		// Green border
+		// Bold border around the entire tile
 		graphics.setColor(color);
 		graphics.setStroke(new BasicStroke(3));
-		graphics.draw(bounds);
+		graphics.draw(expanded);
 
 		return null;
 	}

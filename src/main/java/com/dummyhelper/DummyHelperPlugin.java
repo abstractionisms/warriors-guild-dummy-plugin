@@ -8,17 +8,13 @@ import net.runelite.api.Animation;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.DynamicObject;
-import net.runelite.api.EnumComposition;
 import net.runelite.api.GameObject;
-import net.runelite.api.StructComposition;
-import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.Varbits;
+
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameObjectDespawned;
 import net.runelite.api.events.GameObjectSpawned;
 import net.runelite.api.events.GameTick;
-import net.runelite.api.EnumID;
-import net.runelite.api.ParamID;
-import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -41,10 +37,6 @@ import java.util.Set;
 )
 public class DummyHelperPlugin extends Plugin
 {
-	/**
-	 * Dummy object IDs mapped to required style.
-	 * Source: https://oldschool.runescape.wiki/w/Dummy_(Warriors%27_Guild)
-	 */
 	static final Map<Integer, String> DUMMY_STYLES = new HashMap<>();
 
 	static
@@ -58,11 +50,17 @@ public class DummyHelperPlugin extends Plugin
 		DUMMY_STYLES.put(23964, "Defensive");
 	}
 
+	/**
+	 * The 4 combat styles in VarPlayer 43 order.
+	 */
 	private static final String[] STYLE_NAMES = {"Accurate", "Aggressive", "Controlled", "Defensive"};
 
 	private static final int WARRIORS_GUILD_REGION_1 = 11575;
 	private static final int WARRIORS_GUILD_REGION_2 = 11319;
 
+	/**
+	 * Combat interface group and the 4 style button container children.
+	 */
 	static final int COMBAT_GROUP_ID = 593;
 	static final int[] STYLE_CHILDREN = {8, 12, 16, 20};
 
@@ -95,8 +93,6 @@ public class DummyHelperPlugin extends Plugin
 
 	@Getter(AccessLevel.PACKAGE)
 	private int highlightButtonIndex = -1;
-
-	private String[] buttonAttackTypes = new String[4];
 
 	@Override
 	protected void startUp()
@@ -164,7 +160,7 @@ public class DummyHelperPlugin extends Plugin
 
 		String msg = event.getMessage().toLowerCase();
 
-		// Successful hit clears the latch
+		// Successful hit — clear and wait for next dummy
 		if (msg.contains("token") || msg.contains("you hit the dummy correctly"))
 		{
 			reset();
@@ -182,7 +178,6 @@ public class DummyHelperPlugin extends Plugin
 			return;
 		}
 
-		// Only scan for a new dummy if nothing is latched
 		if (requiredStyle == null)
 		{
 			scanForActiveDummy();
@@ -190,7 +185,6 @@ public class DummyHelperPlugin extends Plugin
 
 		if (requiredStyle != null)
 		{
-			updateButtonAttackTypes();
 			highlightButtonIndex = findMatchingButton(requiredStyle);
 		}
 	}
@@ -221,44 +215,46 @@ public class DummyHelperPlugin extends Plugin
 		}
 	}
 
-	private void updateButtonAttackTypes()
-	{
-		try
-		{
-			int weaponType = client.getVarbitValue(VarbitID.COMBAT_WEAPON_CATEGORY);
-			EnumComposition weaponStylesEnum = client.getEnum(EnumID.WEAPON_STYLES);
-			int styleEnumId = weaponStylesEnum.getIntValue(weaponType);
-			EnumComposition styleEnum = client.getEnum(styleEnumId);
-			int[] structIds = styleEnum.getIntVals();
-
-			for (int i = 0; i < Math.min(structIds.length, 4); i++)
-			{
-				StructComposition struct = client.getStructComposition(structIds[i]);
-				buttonAttackTypes[i] = struct.getStringValue(ParamID.ATTACK_STYLE_NAME);
-			}
-		}
-		catch (Exception e)
-		{
-			log.debug("Could not read weapon style enums", e);
-			Arrays.fill(buttonAttackTypes, null);
-		}
-	}
-
+	/**
+	 * Find which button (0-3) to highlight for the required style.
+	 *
+	 * For combat styles (Accurate/Aggressive/Controlled/Defensive):
+	 *   Direct index mapping: Accurate=0, Aggressive=1, Controlled=2, Defensive=3
+	 *
+	 * For attack types (Stab/Slash/Crush):
+	 *   Read VarbitID.COMBAT_WEAPON_CATEGORY to get the weapon type, then
+	 *   look up which button produces the required attack type.
+	 */
 	private int findMatchingButton(String required)
 	{
-		// Direct combat style match (Accurate=0, Aggressive=1, Controlled=2, Defensive=3)
+		// Combat styles map directly to button indices
 		for (int i = 0; i < STYLE_NAMES.length; i++)
 		{
 			if (STYLE_NAMES[i].equalsIgnoreCase(required))
 			{
-				return i;
+				// Verify the button widget exists
+				Widget w = client.getWidget(COMBAT_GROUP_ID, STYLE_CHILDREN[i]);
+				if (w != null && !w.isHidden())
+				{
+					return i;
+				}
+				return -1;
 			}
 		}
 
-		// Attack type match (Stab/Slash/Crush) — check what each button does with this weapon
-		for (int i = 0; i < buttonAttackTypes.length; i++)
+		// Attack types (Stab/Slash/Crush) — use weapon category table
+		int weaponCategory = client.getVarbitValue(Varbits.EQUIPPED_WEAPON_TYPE);
+
+		for (int i = 0; i < STYLE_CHILDREN.length; i++)
 		{
-			if (buttonAttackTypes[i] != null && buttonAttackTypes[i].equalsIgnoreCase(required))
+			Widget w = client.getWidget(COMBAT_GROUP_ID, STYLE_CHILDREN[i]);
+			if (w == null || w.isHidden())
+			{
+				continue;
+			}
+
+			String attackType = WeaponAttackTypes.getAttackType(weaponCategory, i);
+			if (attackType != null && attackType.equalsIgnoreCase(required))
 			{
 				return i;
 			}
