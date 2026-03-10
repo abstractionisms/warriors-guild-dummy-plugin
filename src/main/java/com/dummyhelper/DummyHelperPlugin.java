@@ -188,6 +188,16 @@ public class DummyHelperPlugin extends Plugin
 			return;
 		}
 
+		// If we have a latched dummy, verify it's still animating.
+		// If it stopped (timed out or wrong hit), release the latch.
+		if (activeDummy != null)
+		{
+			if (!isDummyAnimating(activeDummy))
+			{
+				reset();
+			}
+		}
+
 		if (requiredStyle == null)
 		{
 			scanForActiveDummy();
@@ -199,19 +209,23 @@ public class DummyHelperPlugin extends Plugin
 		}
 	}
 
+	private boolean isDummyAnimating(GameObject dummy)
+	{
+		if (!(dummy.getRenderable() instanceof DynamicObject))
+		{
+			return false;
+		}
+
+		DynamicObject dynObj = (DynamicObject) dummy.getRenderable();
+		Animation anim = dynObj.getAnimation();
+		return anim != null && anim.getId() != -1;
+	}
+
 	private void scanForActiveDummy()
 	{
 		for (GameObject dummy : trackedDummies)
 		{
-			if (!(dummy.getRenderable() instanceof DynamicObject))
-			{
-				continue;
-			}
-
-			DynamicObject dynObj = (DynamicObject) dummy.getRenderable();
-			Animation anim = dynObj.getAnimation();
-
-			if (anim != null && anim.getId() != -1)
+			if (isDummyAnimating(dummy))
 			{
 				String style = DUMMY_STYLES.get(dummy.getId());
 				if (style != null)
