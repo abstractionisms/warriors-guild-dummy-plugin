@@ -104,6 +104,12 @@ public class DummyHelperPlugin extends Plugin
 	@Getter(AccessLevel.PACKAGE)
 	private int highlightButtonIndex = -1;
 
+	// Ticks since the active dummy was last seen animating.
+	// Gives a grace period before releasing the latch, since
+	// animations can briefly return -1 between cycles.
+	private static final int IDLE_GRACE_TICKS = 5;
+	private int idleTickCount = 0;
+
 	@Override
 	protected void startUp()
 	{
@@ -125,6 +131,7 @@ public class DummyHelperPlugin extends Plugin
 		requiredStyle = null;
 		activeDummy = null;
 		highlightButtonIndex = -1;
+		idleTickCount = 0;
 	}
 
 	@Provides
@@ -189,12 +196,20 @@ public class DummyHelperPlugin extends Plugin
 		}
 
 		// If we have a latched dummy, verify it's still animating.
-		// If it stopped (timed out or wrong hit), release the latch.
+		// Allow a grace period since animations can briefly return -1 between cycles.
 		if (activeDummy != null)
 		{
-			if (!isDummyAnimating(activeDummy))
+			if (isDummyAnimating(activeDummy))
 			{
-				reset();
+				idleTickCount = 0;
+			}
+			else
+			{
+				idleTickCount++;
+				if (idleTickCount >= IDLE_GRACE_TICKS)
+				{
+					reset();
+				}
 			}
 		}
 
