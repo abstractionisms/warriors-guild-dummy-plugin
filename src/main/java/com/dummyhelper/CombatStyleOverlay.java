@@ -13,7 +13,8 @@ import java.awt.Graphics2D;
 import java.awt.Rectangle;
 
 /**
- * Highlights the correct attack style button in the combat options tab.
+ * Draws a colored highlight over the correct combat style button
+ * in the combat options tab (widget group 593).
  */
 public class CombatStyleOverlay extends Overlay
 {
@@ -56,22 +57,16 @@ public class CombatStyleOverlay extends Overlay
 			return null;
 		}
 
-		// Expand bounds by 2px on each side to cover the full visual tile
-		Rectangle expanded = new Rectangle(
-			bounds.x - 2, bounds.y - 2,
-			bounds.width + 4, bounds.height + 4
-		);
-
 		Color color = config.correctColor();
 
-		// Solid fill over the entire tile
+		// Semi-transparent fill
 		graphics.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 60));
-		graphics.fill(expanded);
+		graphics.fill(bounds);
 
-		// Bold border around the entire tile
+		// Border
 		graphics.setColor(color);
-		graphics.setStroke(new BasicStroke(3));
-		graphics.draw(expanded);
+		graphics.setStroke(new BasicStroke(2));
+		graphics.draw(bounds);
 
 		return null;
 	}

@@ -37,6 +37,12 @@ import java.util.Set;
 )
 public class DummyHelperPlugin extends Plugin
 {
+	/**
+	 * Dummy object ID -> required style/attack type.
+	 * IDs from the Warriors Guild basement dummy room.
+	 * Values are either a combat style name (Accurate, Aggressive, Controlled, Defensive)
+	 * or an attack type (Stab, Slash, Crush).
+	 */
 	static final Map<Integer, String> DUMMY_STYLES = new HashMap<>();
 
 	static
@@ -51,15 +57,19 @@ public class DummyHelperPlugin extends Plugin
 	}
 
 	/**
-	 * The 4 combat styles in VarPlayer 43 order.
+	 * The 4 combat style names in VarPlayer 43 (COMBAT_STYLE) order.
+	 * Used for direct index lookup when a dummy requires a combat style.
 	 */
 	private static final String[] STYLE_NAMES = {"Accurate", "Aggressive", "Controlled", "Defensive"};
 
+	// Warriors Guild map region IDs (basement + ground floor)
 	private static final int WARRIORS_GUILD_REGION_1 = 11575;
 	private static final int WARRIORS_GUILD_REGION_2 = 11319;
 
 	/**
-	 * Combat interface group and the 4 style button container children.
+	 * Combat options widget group (593) and the 4 style button children.
+	 * Children 8/12/16/20 are the clickable style containers;
+	 * child 4 is the combat level display (not a button).
 	 */
 	static final int COMBAT_GROUP_ID = 593;
 	static final int[] STYLE_CHILDREN = {8, 12, 16, 20};
@@ -218,12 +228,12 @@ public class DummyHelperPlugin extends Plugin
 	/**
 	 * Find which button (0-3) to highlight for the required style.
 	 *
-	 * For combat styles (Accurate/Aggressive/Controlled/Defensive):
-	 *   Direct index mapping: Accurate=0, Aggressive=1, Controlled=2, Defensive=3
+	 * Combat styles (Accurate/Aggressive/Controlled/Defensive) map directly
+	 * to button indices 0-3 since they follow VarPlayer 43 order.
 	 *
-	 * For attack types (Stab/Slash/Crush):
-	 *   Read VarbitID.COMBAT_WEAPON_CATEGORY to get the weapon type, then
-	 *   look up which button produces the required attack type.
+	 * Attack types (Stab/Slash/Crush) require reading the equipped weapon
+	 * category from Varbits.EQUIPPED_WEAPON_TYPE, then consulting the
+	 * WeaponAttackTypes table to find which button produces the needed type.
 	 */
 	private int findMatchingButton(String required)
 	{
