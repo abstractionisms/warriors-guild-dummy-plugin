@@ -1,17 +1,26 @@
 package com.dummyhelper;
 
-import net.runelite.client.ui.overlay.OverlayPanel;
+import net.runelite.api.GameObject;
+import net.runelite.api.Point;
+import net.runelite.api.Perspective;
+import net.runelite.api.coords.LocalPoint;
+import net.runelite.client.ui.overlay.Overlay;
+import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
-import net.runelite.client.ui.overlay.OverlayPriority;
-import net.runelite.client.ui.overlay.components.LineComponent;
-import net.runelite.client.ui.overlay.components.TitleComponent;
+import net.runelite.client.ui.overlay.OverlayUtil;
 
 import javax.inject.Inject;
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.Graphics2D;
+import java.awt.Shape;
 
-public class DummyHelperOverlay extends OverlayPanel
+/**
+ * Draws a highlight box around the active dummy and shows the required style as text above it.
+ */
+public class DummyHelperOverlay extends Overlay
 {
 	private final DummyHelperPlugin plugin;
 	private final DummyHelperConfig config;
@@ -22,87 +31,63 @@ public class DummyHelperOverlay extends OverlayPanel
 		super(plugin);
 		this.plugin = plugin;
 		this.config = config;
-		setPosition(OverlayPosition.TOP_LEFT);
-		setPriority(OverlayPriority.HIGH);
+		setPosition(OverlayPosition.DYNAMIC);
+		setLayer(OverlayLayer.ABOVE_SCENE);
 	}
 
 	@Override
 	public Dimension render(Graphics2D graphics)
 	{
-		if (!config.showOverlay())
+		if (!config.showOverlay() || !plugin.isInWarriorsGuild())
 		{
 			return null;
 		}
 
-		if (!plugin.isInWarriorsGuild())
+		GameObject dummy = plugin.getActiveDummy();
+		String style = plugin.getRequiredStyle();
+
+		if (dummy == null || style == null)
 		{
 			return null;
 		}
 
-		String requiredStyle = plugin.getRequiredStyle();
-		String currentStyle = plugin.getCurrentPlayerStyle();
-
-		if (requiredStyle == null)
+		// Draw box around the dummy
+		Shape hull = dummy.getConvexHull();
+		if (hull != null)
 		{
-			panelComponent.getChildren().add(TitleComponent.builder()
-				.text("Dummy Helper")
-				.color(Color.YELLOW)
-				.build());
+			Color highlightColor = config.correctColor();
+			graphics.setColor(highlightColor);
+			graphics.setStroke(new BasicStroke(3));
+			graphics.draw(hull);
 
-			panelComponent.getChildren().add(LineComponent.builder()
-				.left("Waiting for dummy...")
-				.build());
-
-			return super.render(graphics);
+			// Semi-transparent fill
+			graphics.setColor(new Color(
+				highlightColor.getRed(),
+				highlightColor.getGreen(),
+				highlightColor.getBlue(),
+				50
+			));
+			graphics.fill(hull);
 		}
 
-		boolean matches = plugin.isStyleMatches();
-		boolean weaponDep = plugin.isWeaponDependent();
-		Color statusColor = matches ? config.correctColor() : config.incorrectColor();
-
-		panelComponent.getChildren().add(TitleComponent.builder()
-			.text("Dummy Helper")
-			.color(statusColor)
-			.build());
-
-		panelComponent.getChildren().add(LineComponent.builder()
-			.left("Use:")
-			.right(requiredStyle)
-			.rightColor(Color.WHITE)
-			.build());
-
-		panelComponent.getChildren().add(LineComponent.builder()
-			.left("Current:")
-			.right(currentStyle != null ? currentStyle : "Unknown")
-			.rightColor(statusColor)
-			.build());
-
-		if (weaponDep)
+		// Draw style text above the dummy
+		LocalPoint localPoint = dummy.getLocalLocation();
+		if (localPoint != null)
 		{
-			// Stab/Slash/Crush — can't auto-detect, tell user to check combat tab
-			panelComponent.getChildren().add(LineComponent.builder()
-				.left("Status:")
-				.right("Check combat tab")
-				.rightColor(Color.YELLOW)
-				.build());
-		}
-		else if (matches)
-		{
-			panelComponent.getChildren().add(LineComponent.builder()
-				.left("Status:")
-				.right("Correct")
-				.rightColor(config.correctColor())
-				.build());
-		}
-		else
-		{
-			panelComponent.getChildren().add(LineComponent.builder()
-				.left("Status:")
-				.right("SWITCH!")
-				.rightColor(config.incorrectColor())
-				.build());
+			String text = "Use: " + style;
+			Point textPoint = Perspective.getCanvasTextLocation(
+				plugin.getClient(), graphics, localPoint, text, 150
+			);
+
+			if (textPoint != null)
+			{
+				Font original = graphics.getFont();
+				graphics.setFont(original.deriveFont(Font.BOLD, 16f));
+				OverlayUtil.renderTextLocation(graphics, textPoint, text, Color.WHITE);
+				graphics.setFont(original);
+			}
 		}
 
-		return super.render(graphics);
+		return null;
 	}
 }

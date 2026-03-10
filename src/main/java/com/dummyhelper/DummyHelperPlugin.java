@@ -5,13 +5,21 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Animation;
+import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.DynamicObject;
+import net.runelite.api.EnumComposition;
 import net.runelite.api.GameObject;
+import net.runelite.api.StructComposition;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameObjectDespawned;
 import net.runelite.api.events.GameObjectSpawned;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.EnumID;
+import net.runelite.api.ParamID;
+import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
@@ -28,59 +36,37 @@ import java.util.Set;
 @Slf4j
 @PluginDescriptor(
 	name = "Warriors Guild Dummy Helper",
-	description = "Shows which attack style to use for the active dummy in the Warriors Guild",
+	description = "Highlights the correct attack style for the active dummy in the Warriors Guild",
 	tags = {"warriors", "guild", "dummy", "combat", "attack", "style", "defender"}
 )
 public class DummyHelperPlugin extends Plugin
 {
 	/**
-	 * Dummy object IDs and their required attack styles.
-	 * The Warriors Guild ground floor has 7 dummies, each requiring a specific combat style.
+	 * Dummy object IDs mapped to required style.
 	 * Source: https://oldschool.runescape.wiki/w/Dummy_(Warriors%27_Guild)
-	 *
-	 * These map directly to VarPlayer 43 style indices:
-	 *   0 = Accurate, 1 = Aggressive, 2 = Controlled, 3 = Defensive
 	 */
-	private static final Map<Integer, String> DUMMY_ATTACK_STYLES = new HashMap<>();
+	static final Map<Integer, String> DUMMY_STYLES = new HashMap<>();
 
 	static
 	{
-		DUMMY_ATTACK_STYLES.put(23958, "Accurate");    // index 0
-		DUMMY_ATTACK_STYLES.put(23959, "Slash");        // attack type
-		DUMMY_ATTACK_STYLES.put(23960, "Aggressive");   // index 1
-		DUMMY_ATTACK_STYLES.put(23961, "Controlled");   // index 2
-		DUMMY_ATTACK_STYLES.put(23962, "Crush");        // attack type
-		DUMMY_ATTACK_STYLES.put(23963, "Stab");         // attack type
-		DUMMY_ATTACK_STYLES.put(23964, "Defensive");    // index 3
+		DUMMY_STYLES.put(23958, "Accurate");
+		DUMMY_STYLES.put(23959, "Slash");
+		DUMMY_STYLES.put(23960, "Aggressive");
+		DUMMY_STYLES.put(23961, "Controlled");
+		DUMMY_STYLES.put(23962, "Crush");
+		DUMMY_STYLES.put(23963, "Stab");
+		DUMMY_STYLES.put(23964, "Defensive");
 	}
 
-	/**
-	 * Styles that map directly to VarPlayer 43 indices (easy to match).
-	 */
-	private static final Map<String, Integer> DIRECT_STYLE_MAP = new HashMap<>();
+	private static final String[] STYLE_NAMES = {"Accurate", "Aggressive", "Controlled", "Defensive"};
 
-	static
-	{
-		DIRECT_STYLE_MAP.put("Accurate", 0);
-		DIRECT_STYLE_MAP.put("Aggressive", 1);
-		DIRECT_STYLE_MAP.put("Controlled", 2);
-		DIRECT_STYLE_MAP.put("Defensive", 3);
-	}
-
-	/**
-	 * Warriors Guild region IDs (ground floor, where the dummy room is).
-	 */
 	private static final int WARRIORS_GUILD_REGION_1 = 11575;
 	private static final int WARRIORS_GUILD_REGION_2 = 11319;
 
-	/**
-	 * VarPlayer index for the player's current attack style.
-	 * Values: 0=Accurate, 1=Aggressive, 2=Controlled, 3=Defensive
-	 */
-	private static final int ATTACK_STYLE_VARPLAYER = 43;
+	static final int COMBAT_GROUP_ID = 593;
+	static final int[] STYLE_CHILDREN = {4, 8, 12, 16};
 
-	private static final String[] ATTACK_STYLE_NAMES = {"Accurate", "Aggressive", "Controlled", "Defensive"};
-
+	@Getter(AccessLevel.PACKAGE)
 	@Inject
 	private Client client;
 
@@ -88,7 +74,10 @@ public class DummyHelperPlugin extends Plugin
 	private DummyHelperConfig config;
 
 	@Inject
-	private DummyHelperOverlay overlay;
+	private DummyHelperOverlay dummyOverlay;
+
+	@Inject
+	private CombatStyleOverlay combatOverlay;
 
 	@Inject
 	private OverlayManager overlayManager;
@@ -99,36 +88,37 @@ public class DummyHelperPlugin extends Plugin
 	private String requiredStyle = null;
 
 	@Getter(AccessLevel.PACKAGE)
-	private String currentPlayerStyle = null;
+	private GameObject activeDummy = null;
 
+	@Getter(AccessLevel.PACKAGE)
 	private boolean inWarriorsGuild = false;
 
 	@Getter(AccessLevel.PACKAGE)
-	private boolean styleMatches = false;
+	private int highlightButtonIndex = -1;
 
-	/**
-	 * Whether the required style is an attack type (Stab/Slash/Crush) that depends
-	 * on the weapon, vs a direct style (Accurate/Aggressive/Controlled/Defensive).
-	 */
-	@Getter(AccessLevel.PACKAGE)
-	private boolean weaponDependent = false;
+	private String[] buttonAttackTypes = new String[4];
 
 	@Override
 	protected void startUp()
 	{
-		overlayManager.add(overlay);
+		overlayManager.add(dummyOverlay);
+		overlayManager.add(combatOverlay);
 	}
 
 	@Override
 	protected void shutDown()
 	{
-		overlayManager.remove(overlay);
+		overlayManager.remove(dummyOverlay);
+		overlayManager.remove(combatOverlay);
 		trackedDummies.clear();
+		reset();
+	}
+
+	private void reset()
+	{
 		requiredStyle = null;
-		currentPlayerStyle = null;
-		inWarriorsGuild = false;
-		styleMatches = false;
-		weaponDependent = false;
+		activeDummy = null;
+		highlightButtonIndex = -1;
 	}
 
 	@Provides
@@ -141,7 +131,7 @@ public class DummyHelperPlugin extends Plugin
 	public void onGameObjectSpawned(GameObjectSpawned event)
 	{
 		GameObject obj = event.getGameObject();
-		if (DUMMY_ATTACK_STYLES.containsKey(obj.getId()))
+		if (DUMMY_STYLES.containsKey(obj.getId()))
 		{
 			trackedDummies.add(obj);
 		}
@@ -150,104 +140,156 @@ public class DummyHelperPlugin extends Plugin
 	@Subscribe
 	public void onGameObjectDespawned(GameObjectDespawned event)
 	{
-		trackedDummies.remove(event.getGameObject());
+		GameObject obj = event.getGameObject();
+		trackedDummies.remove(obj);
+		if (obj.equals(activeDummy))
+		{
+			reset();
+		}
+	}
+
+	@Subscribe
+	public void onChatMessage(ChatMessage event)
+	{
+		if (!inWarriorsGuild)
+		{
+			return;
+		}
+
+		ChatMessageType type = event.getType();
+		if (type != ChatMessageType.SPAM && type != ChatMessageType.GAMEMESSAGE)
+		{
+			return;
+		}
+
+		String msg = event.getMessage().toLowerCase();
+
+		// Successful hit clears the latch
+		if (msg.contains("token") || msg.contains("you hit the dummy correctly"))
+		{
+			reset();
+		}
 	}
 
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
-		inWarriorsGuild = isInWarriorsGuild();
+		inWarriorsGuild = checkInWarriorsGuild();
 
 		if (!inWarriorsGuild)
 		{
-			requiredStyle = null;
-			currentPlayerStyle = null;
-			styleMatches = false;
-			weaponDependent = false;
+			reset();
 			return;
 		}
 
-		int styleIndex = client.getVarpValue(ATTACK_STYLE_VARPLAYER);
-		if (styleIndex >= 0 && styleIndex < ATTACK_STYLE_NAMES.length)
+		// Only scan for a new dummy if nothing is latched
+		if (requiredStyle == null)
 		{
-			currentPlayerStyle = ATTACK_STYLE_NAMES[styleIndex];
-		}
-		else
-		{
-			currentPlayerStyle = "Unknown";
+			scanForActiveDummy();
 		}
 
-		// Find the currently animated dummy
-		requiredStyle = null;
+		if (requiredStyle != null)
+		{
+			updateButtonAttackTypes();
+			highlightButtonIndex = findMatchingButton(requiredStyle);
+		}
+	}
+
+	private void scanForActiveDummy()
+	{
 		for (GameObject dummy : trackedDummies)
 		{
-			if (dummy.getRenderable() instanceof DynamicObject)
+			if (!(dummy.getRenderable() instanceof DynamicObject))
 			{
-				DynamicObject dynObj = (DynamicObject) dummy.getRenderable();
-				Animation anim = dynObj.getAnimation();
-				if (anim != null && anim.getId() != -1)
+				continue;
+			}
+
+			DynamicObject dynObj = (DynamicObject) dummy.getRenderable();
+			Animation anim = dynObj.getAnimation();
+
+			if (anim != null && anim.getId() != -1)
+			{
+				String style = DUMMY_STYLES.get(dummy.getId());
+				if (style != null)
 				{
-					String style = DUMMY_ATTACK_STYLES.get(dummy.getId());
-					if (style != null)
-					{
-						requiredStyle = style;
-						break;
-					}
+					requiredStyle = style;
+					activeDummy = dummy;
+					log.debug("Dummy active: {} (ID {})", style, dummy.getId());
+					return;
 				}
 			}
 		}
-
-		if (requiredStyle != null && currentPlayerStyle != null)
-		{
-			weaponDependent = !DIRECT_STYLE_MAP.containsKey(requiredStyle);
-			styleMatches = doesStyleMatch(requiredStyle, styleIndex);
-		}
-		else
-		{
-			styleMatches = false;
-			weaponDependent = false;
-		}
 	}
 
-	/**
-	 * Checks if the player's current attack style matches the required dummy style.
-	 *
-	 * For Accurate/Aggressive/Controlled/Defensive dummies, this is a direct
-	 * comparison against VarPlayer 43.
-	 *
-	 * For Stab/Slash/Crush dummies, the actual attack type depends on the equipped
-	 * weapon. We cannot determine this from VarPlayer 43 alone, so we return false
-	 * and let the overlay inform the player to check their combat tab.
-	 */
-	private boolean doesStyleMatch(String required, int styleIndex)
+	private void updateButtonAttackTypes()
 	{
-		Integer directIndex = DIRECT_STYLE_MAP.get(required);
-		if (directIndex != null)
+		try
 		{
-			return styleIndex == directIndex;
-		}
+			int weaponType = client.getVarbitValue(VarbitID.COMBAT_WEAPON_CATEGORY);
+			EnumComposition weaponStylesEnum = client.getEnum(EnumID.WEAPON_STYLES);
+			int styleEnumId = weaponStylesEnum.getIntValue(weaponType);
+			EnumComposition styleEnum = client.getEnum(styleEnumId);
+			int[] structIds = styleEnum.getIntVals();
 
-		// Stab/Slash/Crush depend on weapon — can't determine from VarPlayer alone
-		return false;
+			for (int i = 0; i < Math.min(structIds.length, 4); i++)
+			{
+				StructComposition struct = client.getStructComposition(structIds[i]);
+				buttonAttackTypes[i] = struct.getStringValue(ParamID.ATTACK_STYLE_NAME);
+			}
+		}
+		catch (Exception e)
+		{
+			log.debug("Could not read weapon style enums", e);
+			Arrays.fill(buttonAttackTypes, null);
+		}
 	}
 
-	/**
-	 * Checks whether the player is currently in the Warriors Guild area.
-	 */
-	boolean isInWarriorsGuild()
+	private int findMatchingButton(String required)
+	{
+		// Direct combat style match (Accurate=0, Aggressive=1, Controlled=2, Defensive=3)
+		for (int i = 0; i < STYLE_NAMES.length; i++)
+		{
+			if (STYLE_NAMES[i].equalsIgnoreCase(required))
+			{
+				return i;
+			}
+		}
+
+		// Attack type match (Stab/Slash/Crush) — check what each button does with this weapon
+		for (int i = 0; i < buttonAttackTypes.length; i++)
+		{
+			if (buttonAttackTypes[i] != null && buttonAttackTypes[i].equalsIgnoreCase(required))
+			{
+				return i;
+			}
+		}
+
+		return -1;
+	}
+
+	Widget getStyleWidget(int index)
+	{
+		if (index < 0 || index >= STYLE_CHILDREN.length)
+		{
+			return null;
+		}
+		return client.getWidget(COMBAT_GROUP_ID, STYLE_CHILDREN[index]);
+	}
+
+	private boolean checkInWarriorsGuild()
 	{
 		if (client.getLocalPlayer() == null)
 		{
 			return false;
 		}
 
-		WorldPoint wp = client.getLocalPlayer().getWorldLocation();
-		if (wp == null || client.getMapRegions() == null)
+		int[] regions = client.getMapRegions();
+		if (regions == null)
 		{
 			return false;
 		}
 
-		return Arrays.stream(client.getMapRegions())
+		return Arrays.stream(regions)
 			.anyMatch(r -> r == WARRIORS_GUILD_REGION_1 || r == WARRIORS_GUILD_REGION_2);
 	}
 }
