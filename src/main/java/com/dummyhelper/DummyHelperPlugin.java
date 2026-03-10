@@ -64,7 +64,7 @@ public class DummyHelperPlugin extends Plugin
 	private static final int WARRIORS_GUILD_REGION_2 = 11319;
 
 	static final int COMBAT_GROUP_ID = 593;
-	static final int[] STYLE_CHILDREN = {4, 8, 12, 16};
+	static final int[] STYLE_CHILDREN = {8, 12, 16, 20};
 
 	@Getter(AccessLevel.PACKAGE)
 	@Inject
